@@ -60,6 +60,7 @@ using apollo::localization::LocalizationEstimate;
 using apollo::perception::PerceptionObstacle;
 using apollo::perception::PerceptionObstacles;
 using apollo::perception::TrafficLightDetection;
+using apollo::perception::TrafficLight;
 using apollo::planning::ADCTrajectory;
 using apollo::planning::DecisionResult;
 using apollo::planning::StopReasonCode;
@@ -598,13 +599,12 @@ void SimulationWorldService::UpdateSimulationWorld(
 template <>
 void SimulationWorldService::UpdateSimulationWorld(
     const TrafficLightDetection &traffic_light_detection) {
-  Object *signal = world_.mutable_traffic_signal();
-  if (traffic_light_detection.traffic_light_size() > 0) {
-    const auto &traffic_light = traffic_light_detection.traffic_light(0);
+  world_.clear_perceived_signal();
+  for (const auto &traffic_light : traffic_light_detection.traffic_light()) {
+    Object *signal = world_.add_perceived_signal();
+    signal->set_id(traffic_light.id());
     signal->set_current_signal(
-        apollo::perception::TrafficLight_Color_Name(traffic_light.color()));
-  } else {
-    signal->set_current_signal("");
+      TrafficLight_Color_Name(traffic_light.color()));
   }
 }
 
@@ -953,6 +953,36 @@ void SimulationWorldService::UpdatePlanningData(const PlanningData &data) {
   if (data.has_pull_over_status()) {
     planning_data->mutable_pull_over_status()->CopyFrom(
         data.pull_over_status());
+  }
+
+  // Update planning signal
+  world_.clear_traffic_signal();
+  if (data.has_signal_light() &&
+      data.signal_light().signal_size() > 0) {
+    TrafficLight::Color current_signal = TrafficLight::UNKNOWN;
+    int green_light_count = 0;
+
+    for (auto &signal : data.signal_light().signal()) {
+      switch (signal.color()) {
+        case TrafficLight::RED:
+        case TrafficLight::YELLOW:
+        case TrafficLight::BLACK:
+          current_signal = signal.color();
+          break;
+        case TrafficLight::GREEN:
+          green_light_count++;
+          break;
+        default:
+          break;
+      }
+    }
+
+    if (green_light_count == data.signal_light().signal_size()) {
+      current_signal = TrafficLight::GREEN;
+    }
+
+    world_.mutable_traffic_signal()->set_current_signal(
+      TrafficLight_Color_Name(current_signal));
   }
 }
 
